@@ -1,72 +1,109 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const chromium = require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
-
+const express = require('express');
+const puppeteer = require('puppeteer');
 const app = express();
 
-// Middleware pour accepter le JSON et le texte brut
-app.use(bodyParser.json({ limit: "10mb" }));
-app.use(bodyParser.text({ type: "*/*", limit: "10mb" }));
+// Middleware pour parser le JSON
+app.use(express.json({ limit: '10mb' }));
 
-// Logger
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url} - Content-Type: ${req.headers["content-type"]}`);
-  next();
+// Route de santé pour vérifier que le service fonctionne
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Service de conversion HTML vers PDF actif',
+    endpoint: 'POST /convert-to-pdf'
+  });
 });
 
-app.post("/generate-pdf", async (req, res) => {
+// Route principale de conversion
+app.post('/convert-to-pdf', async (req, res) => {
+  let browser;
+  
   try {
-    const html = typeof req.body === "string" ? req.body : req.body.html;
-    if (!html) {
-      console.warn("Aucun HTML reçu.");
-      return res.status(400).json({ success: false, message: "Aucun contenu HTML reçu." });
+    console.log('Réception de la requête...');
+    
+    // Validation des données reçues
+    if (!req.body || !Array.isArray(req.body) || req.body.length === 0) {
+      return res.status(400).json({ 
+        error: 'Format invalide. Attendu: tableau JSON avec propriété "html"' 
+      });
     }
 
-    console.log("HTML reçu, génération du PDF...");
-
-    // Vérification du chemin Chromium
-    const executablePath = await chromium.executablePath();
-
-    if (!executablePath) {
-      throw new Error("Chromium introuvable. Vérifie la version de @sparticuz/chromium installée.");
+    const htmlContent = req.body[0].html;
+    
+    if (!htmlContent) {
+      return res.status(400).json({ 
+        error: 'Propriété "html" manquante dans le JSON' 
+      });
     }
 
-    const browser = await puppeteer.launch({
-      args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
-      defaultViewport: chromium.defaultViewport,
-      executablePath,
-      headless: true,
-      ignoreHTTPSErrors: true,
+    console.log('Lancement de Puppeteer...');
+    
+    // Configuration pour Render (environnement Linux)
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ]
     });
 
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    
+    console.log('Chargement du contenu HTML...');
+    await page.setContent(htmlContent, {
+      waitUntil: 'networkidle0',
+      timeout: 30000
+    });
 
+    console.log('Génération du PDF...');
     const pdfBuffer = await page.pdf({
-      format: "A4",
+      format: 'A4',
       printBackground: true,
-      preferCSSPageSize: true,
+      margin: {
+        top: '20px',
+        right: '20px',
+        bottom: '20px',
+        left: '20px'
+      }
     });
 
     await browser.close();
+    browser = null;
 
-    console.log("PDF généré avec succès !");
+    console.log('PDF généré avec succès');
 
-    res.json({
-      success: true,
-      message: "PDF généré avec succès",
-      pdf_base64: pdfBuffer.toString("base64"),
-    });
+    // Envoi du PDF en réponse
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename=resultat.pdf');
+    res.send(pdfBuffer);
+
   } catch (err) {
-    console.error("Erreur lors de la génération du PDF :", err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      stack: err.stack,
+    console.error('Erreur lors de la conversion:', err);
+    
+    if (browser) {
+      await browser.close();
+    }
+    
+    res.status(500).json({ 
+      error: 'Erreur lors de la génération du PDF',
+      details: err.message 
     });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Serveur actif sur le port ${PORT}`));
+// Gestion des erreurs globales
+app.use((err, req, res, next) => {
+  console.error('Erreur non gérée:', err);
+  res.status(500).json({ error: 'Erreur serveur interne' });
+});
+
+// Démarrage du serveur sur le port fourni par Render
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Serveur démarré sur le port ${PORT}`);
+  console.log(`Environnement: ${process.env.NODE_ENV || 'development'}`);
+});
