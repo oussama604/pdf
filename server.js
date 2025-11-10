@@ -40,7 +40,7 @@ app.post("/generate-pdf", async (req, res) => {
         "--disable-gpu",
         "--no-zygote",
       ],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (puppeteer.executablePath ? puppeteer.executablePath() : undefined),
     });
 
     const page = await browser.newPage();
