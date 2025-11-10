@@ -31,12 +31,15 @@ app.post("/generate-pdf", async (req, res) => {
 
     console.log("HTML reçu, génération du PDF...");
 
-    const browser = await puppeteer.launch({ headless: "new" });
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
 
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 60000 });
 
-    const pdfBuffer = await page.pdf({ format: "A4" });
+    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
     await browser.close();
 
     console.log("PDF généré avec succès.");
@@ -50,6 +53,10 @@ app.post("/generate-pdf", async (req, res) => {
     console.error("Erreur lors de la génération du PDF :", err);
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+app.get("/", (req, res) => {
+  res.send("OK");
 });
 
 const PORT = process.env.PORT || 10000;
