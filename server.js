@@ -1,8 +1,8 @@
 const express = require("express");
 const bodyParser = require("body-parser");
-const puppeteer = require("puppeteer");
+const chromium = require("@sparticuz/chromium");
+const puppeteer = require("puppeteer-core");
 const fs = require("fs");
-const { execSync } = require("child_process");
 
 const app = express();
 
@@ -33,44 +33,11 @@ app.post("/generate-pdf", async (req, res) => {
 
     console.log("HTML reçu, génération du PDF...");
 
-    // S'assurer que Chrome est disponible, sinon tenter une installation rapide
-    try {
-      if (!process.env.PUPPETEER_CACHE_DIR) {
-        process.env.PUPPETEER_CACHE_DIR = "/tmp/puppeteer";
-      }
-      const resolvedPathEnv = process.env.PUPPETEER_EXECUTABLE_PATH;
-      let resolvedPath = typeof puppeteer.executablePath === "function" ? puppeteer.executablePath() : undefined;
-      const candidatePath = resolvedPathEnv || resolvedPath;
-      if (!candidatePath || !fs.existsSync(candidatePath)) {
-        console.log("Chrome introuvable, tentative d'installation via puppeteer browsers install chrome...");
-        execSync("npx puppeteer browsers install chrome --quiet", {
-          stdio: "inherit",
-          env: { ...process.env, PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR },
-        });
-        // recalculer le chemin après installation
-        resolvedPath = typeof puppeteer.executablePath === "function" ? puppeteer.executablePath() : undefined;
-        if (resolvedPath && fs.existsSync(resolvedPath)) {
-          console.log(`Chrome installé à: ${resolvedPath}`);
-        } else {
-          console.warn("Impossible de confirmer l'installation de Chrome; on tentera le lancement sans chemin explicite.");
-        }
-      }
-    } catch (installErr) {
-      console.warn("Échec de l'installation automatique de Chrome:", installErr.message);
-    }
-
     const browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--no-zygote",
-      ],
-      executablePath:
-        process.env.PUPPETEER_EXECUTABLE_PATH ||
-        (typeof puppeteer.executablePath === "function" ? puppeteer.executablePath() : undefined),
+      headless: chromium.headless,
+      args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: await chromium.executablePath(),
+      defaultViewport: chromium.defaultViewport,
     });
 
     const page = await browser.newPage();
